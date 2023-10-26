@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: apply
+  name: deploy-root
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: app-root
+  replicas: 10
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: app-root
+    spec:
+      serviceAccountName: apply
+      containers:
+      - image: 940230861144.dkr.ecr.us-east-1.amazonaws.com/root:latest
+        imagePullPolicy: IfNotPresent
+        name: app-root
+        resources:
+          requests:
+            cpu: "100m"
+          limits:
+            cpu: "110m"
+        ports:
+        - containerPort: 7777
+        volumeMounts:
+        - name: persistent-storage
+          mountPath: /mnt
+      volumes:
+      - name: persistent-storage
+        persistentVolumeClaim:
+          claimName: efs-storage-claim
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: apply
+  name: service-root
+spec:
+  ports:
+    - port: 7777
+      targetPort: 7777
+      protocol: TCP
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: app-root
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: apply
+  name: deploy-stub
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: app-stub
+  replicas: 10
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: app-stub
+    spec:
+      serviceAccountName: apply
+      containers:
+      - image: 940230861144.dkr.ecr.us-east-1.amazonaws.com/stub:latest
+        imagePullPolicy: IfNotPresent
+        resources:
+          requests:
+            cpu: "100m"
+          limits:
+            cpu: "110m"
+        name: app-stub
+        ports:
+        - containerPort: 7777
+        volumeMounts:
+        - name: persistent-storage
+          mountPath: /mnt
+      volumes:
+      - name: persistent-storage
+        persistentVolumeClaim:
+          claimName: efs-storage-claim
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: apply
+  name: service-stub
+spec:
+  ports:
+    - port: 7777
+      targetPort: 7777
+      protocol: TCP
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: app-stub

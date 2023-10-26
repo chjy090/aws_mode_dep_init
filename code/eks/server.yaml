@@ -1,0 +1,161 @@
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+    name: gateway
+    namespace: istio-system
+spec:
+    selector:
+      app: istio-ingressgateway
+    servers:
+    - port:
+        number: 8080
+        name: http
+        protocol: HTTP
+      hosts:
+      - "*"
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+    name: nginx
+    namespace: apply
+spec:
+    gateways:
+    - istio-system/gateway
+    hosts:
+      - "*"
+    http:
+    - route:
+      - destination:
+          host: service-stub.apply.svc.cluster.local
+      match:
+      - uri:
+          prefix: "/stub"
+    - route:
+      - destination:
+          host: service-root.apply.svc.cluster.local
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+    name: envoy-stats-monitor
+    namespace: istio-system
+    labels:
+        monitoring: istio-proxies
+        release: prometheus
+spec:
+    selector:
+        matchExpressions:
+        - {key: istio-prometheus-ignore, operator: DoesNotExist}
+    namespaceSelector:
+        any: true
+    jobLabel: envoy-stats
+    podMetricsEndpoints:
+        - path: /stats/prometheus
+          interval: 5s
+          relabelings:
+          - action: keep
+            sourceLabels: [__meta_kubernetes_pod_container_name]
+            regex: "istio-proxy"
+          - action: keep
+            sourceLabels: [__meta_kubernetes_pod_annotationpresent_prometheus_io_scrape]
+          - sourceLabels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            targetLabel: __address__
+          - action: labeldrop
+            regex: "__meta_kubernetes_pod_label_(.+)"
+          - sourceLabels: [__meta_kubernetes_namespace]
+            action: replace
+            targetLabel: namespace
+          - sourceLabels: [__meta_kubernetes_pod_name]
+            action: replace
+            targetLabel: pod_name
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+    name: istio-component-monitor
+    namespace: istio-system
+    labels:
+        monitoring: istio-components
+        release: prometheus
+spec:
+    jobLabel: istio
+    targetLabels: [app]
+    selector:
+        matchExpressions:
+        - {key: istio, operator: In, values: [pilot]}
+    namespaceSelector:
+        any: true
+    endpoints:
+    - port: http-monitoring
+      interval: 5s
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+    name: deploy-root
+    namespace: apply
+spec:
+    advanced:
+      restoreToOriginalReplicaCount: false
+      horizontalPodAutoscalerConfig:
+        name: keda-hpa-deploy-root
+        behavior:
+          scaleDown:
+            stabilizationWindowSeconds: 30
+            policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 15
+    scaleTargetRef:
+        kind: Deployment
+        name: deploy-root
+    minReplicaCount: 1
+    maxReplicaCount: 30
+    cooldownPeriod: 0
+    pollingInterval: 0
+    triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated.monitoring:9090
+        metricName: istio_requests_total_keda
+        query: |
+          sum(ceil(rate(istio_requests_total{destination_service_name="service-root",response_code!="301"}[1m])*60))
+        threshold: "12"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+    name: deploy-stub
+    namespace: apply
+spec:
+    advanced:
+      restoreToOriginalReplicaCount: false
+      horizontalPodAutoscalerConfig:
+        name: keda-hpa-deploy-stub
+        behavior:
+          scaleDown:
+            stabilizationWindowSeconds: 30
+            policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 15
+    scaleTargetRef:
+        kind: Deployment
+        name: deploy-stub
+    minReplicaCount: 1
+    maxReplicaCount: 30
+    cooldownPeriod: 0
+    pollingInterval: 0
+    triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated.monitoring:9090
+        metricName: istio_requests_total_keda
+        query: |
+          sum(ceil(rate(istio_requests_total{destination_service_name="service-stub",response_code!="301"}[1m])*60))
+        threshold: "12"

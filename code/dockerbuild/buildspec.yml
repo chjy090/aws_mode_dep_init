@@ -1,0 +1,15 @@
+version: 0.2
+
+phases:
+
+  build:
+    commands:
+      - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 266422061088.dkr.ecr.us-east-1.amazonaws.com
+      - cd root/
+      - docker build -t 266422061088.dkr.ecr.us-east-1.amazonaws.com/ecr_root:latest .
+      - aws ecr batch-delete-image --repository-name ecr_root --image-ids imageTag=latest
+      - docker push 266422061088.dkr.ecr.us-east-1.amazonaws.com/ecr_root:latest
+      - cd ../lookup/
+      - docker build -t 266422061088.dkr.ecr.us-east-1.amazonaws.com/ecr_lookup:latest .
+      - aws ecr batch-delete-image --repository-name ecr_lookup --image-ids imageTag=latest
+      - docker push 266422061088.dkr.ecr.us-east-1.amazonaws.com/ecr_lookup:latest
